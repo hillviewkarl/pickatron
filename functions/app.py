@@ -1,8 +1,12 @@
 import sqlite3
 from flask import Flask, render_template
+import os
 
 app = Flask(__name__)
+# Cloudflare Workers has a temporary file system, so we need to copy the DB
 DATABASE_NAME = "picks.db"
+if os.path.exists('/data/picks.db'):
+    DATABASE_NAME = '/data/picks.db'
 
 def get_db_connection():
     """Connects to the database and returns the connection."""
@@ -37,12 +41,6 @@ def index():
 
     return render_template('report.html', report=report_data)
 
-# This is the change to make it compatible with Cloudflare Workers
-if __name__ == '__main__':
-    app.run(debug=True)
-
-# Export the app for the Cloudflare Worker to use
-from aioflask import AioFlask
-
-# You will need to install aioflask
-aio_app = AioFlask(app)
+# Cloudflare Pages will serve your app through a main function
+def main(request, env, context):
+    return app(request, env, context)
