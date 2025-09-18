@@ -40,7 +40,3 @@ def index():
     }
 
     return render_template('report.html', report=report_data)
-
-# Cloudflare Pages will serve your app through a main function
-def main(request, env, context):
-    return app(request, env, context)
