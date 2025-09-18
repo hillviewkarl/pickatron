@@ -7,7 +7,7 @@ DATABASE_NAME = "picks.db"
 def get_db_connection():
     """Connects to the database and returns the connection."""
     conn = sqlite3.connect(DATABASE_NAME)
-    conn.row_factory = sqlite3.Row  # This allows accessing columns by name
+    conn.row_factory = sqlite3.Row
     return conn
 
 @app.route('/')
@@ -30,14 +30,19 @@ def index():
         ORDER BY f.commence_time ASC
     ''').fetchall()
     conn.close()
-
-    # We'll use a simple dictionary to hold data for the template
+    
     report_data = {
         'picks': picks_data
     }
 
-    # Render the HTML template, passing the data to it
     return render_template('report.html', report=report_data)
 
+# This is the change to make it compatible with Cloudflare Workers
 if __name__ == '__main__':
     app.run(debug=True)
+
+# Export the app for the Cloudflare Worker to use
+from aioflask import AioFlask
+
+# You will need to install aioflask
+aio_app = AioFlask(app)
