@@ -1,5 +1,5 @@
 name = "pickatron"
-main = "app.py"
+main = "functions/app.py"
 compatibility_date = "2024-05-18"
 compatibility_flags = ["python_workers"]
 
