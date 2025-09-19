@@ -44,7 +44,7 @@ def get_fixtures_from_db():
         if conn:
             conn.close()
 
-def save_pick_to_db(game_id, market, pick, confidence, rationale, pick_odds):
+def save_pick_to_db(game_id, market, pick, confidence, rationale, odds):
     """Saves a generated pick into the nfl_picks table, avoiding duplicates."""
     conn = None
     try:
@@ -53,17 +53,24 @@ def save_pick_to_db(game_id, market, pick, confidence, rationale, pick_odds):
         
         # Check if a pick for this market and game already exists
         cursor.execute('''
-            SELECT COUNT(*) FROM nfl_picks
+            SELECT id, odds FROM nfl_picks
             WHERE game_id = ? AND market = ?
         ''', (game_id, market))
-        if cursor.fetchone()[0] > 0:
-            print(f"Pick for {game_id} ({market}) already exists. Skipping.")
+        existing = cursor.fetchone()
+        if existing:
+            pick_id, existing_odds = existing
+            if existing_odds is None and odds is not None:
+                cursor.execute('UPDATE nfl_picks SET pick = ?, odds = ?, confidence_level = ?, rationale = ? WHERE id = ?', (pick, odds, confidence, rationale, pick_id))
+                conn.commit()
+                print(f"Updated existing pick with odds for {game_id} ({market}).")
+            else:
+                print(f"Pick for {game_id} ({market}) already exists. Skipping.")
             return
 
         cursor.execute('''
-            INSERT INTO nfl_picks (game_id, market, pick, confidence_level, rationale, pick_odds)
+            INSERT INTO nfl_picks (game_id, market, pick, odds, confidence_level, rationale)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (game_id, market, pick, confidence, rationale, pick_odds))
+        ''', (game_id, market, pick, odds, confidence, rationale))
         conn.commit()
         print(f"Successfully saved pick for {game_id} ({market}).")
     except sqlite3.Error as e:
@@ -87,15 +94,22 @@ def generate_and_save_picks():
      spread_points, spread_home, spread_away,
      total_points, total_over, total_under) = fixture
 
+    # Safely format odds that might be missing (None)
+    def fmt(value):
+        return "N/A" if value is None else f"{value}"
+
+    home_spread_points = fmt(spread_points)
+    away_spread_points = fmt(-spread_points) if spread_points is not None else "N/A"
+
     prompt = f"""
         You are an expert sports betting analyst. Your task is to provide a single, confident pick for an NFL game.
         
         Game: {away_team} @ {home_team}
         
         Current Betting Odds:
-        - Moneyline: {home_team} ({moneyline_home}) / {away_team} ({moneyline_away})
-        - Spread: {home_team} {spread_points} ({spread_home}) / {away_team} {-spread_points} ({spread_away})
-        - Total: Over {total_points} ({total_over}) / Under {total_points} ({total_under})
+        - Moneyline: {home_team} ({fmt(moneyline_home)}) / {away_team} ({fmt(moneyline_away)})
+        - Spread: {home_team} {home_spread_points} ({fmt(spread_home)}) / {away_team} {away_spread_points} ({fmt(spread_away)})
+        - Total: Over {fmt(total_points)} ({fmt(total_over)}) / Under {fmt(total_points)} ({fmt(total_under)})
 
         Analyze the matchup and provide your top betting pick.
         
@@ -118,26 +132,33 @@ def generate_and_save_picks():
             confidence = data.get('confidence')
             rationale = data.get('rationale')
             
-            # Extract the specific odds for the pick
-            pick_odds = None
-            if market.lower() == 'moneyline':
-                if pick.lower().startswith(home_team.lower()):
-                    pick_odds = moneyline_home
-                else:
-                    pick_odds = moneyline_away
-            elif market.lower() == 'spread':
-                if pick.lower().startswith(home_team.lower()):
-                    pick_odds = spread_home
-                else:
-                    pick_odds = spread_away
-            elif market.lower() == 'total':
-                if 'over' in pick.lower():
-                    pick_odds = total_over
-                else:
-                    pick_odds = total_under
+            # Determine odds for chosen outcome
+            chosen_odds = None
+            if market and pick:
+                market_lower = market.lower()
+                pick_lower = pick.lower()
+                home_lower = (home_team or '').lower()
+                away_lower = (away_team or '').lower()
+
+                if market_lower == 'moneyline':
+                    if home_lower and home_lower in pick_lower:
+                        chosen_odds = moneyline_home
+                    elif away_lower and away_lower in pick_lower:
+                        chosen_odds = moneyline_away
+                elif market_lower == 'spread':
+                    # If pick mentions home team, use home spread odds; if away team, use away spread odds
+                    if home_lower and home_lower in pick_lower:
+                        chosen_odds = spread_home
+                    elif away_lower and away_lower in pick_lower:
+                        chosen_odds = spread_away
+                elif market_lower == 'total' or market_lower == 'totals':
+                    if 'over' in pick_lower:
+                        chosen_odds = total_over
+                    elif 'under' in pick_lower:
+                        chosen_odds = total_under
             
-            if market and pick and confidence and rationale and pick_odds:
-                save_pick_to_db(game_id, market, pick, confidence, rationale, pick_odds)
+            if market and pick and confidence and rationale:
+                save_pick_to_db(game_id, market, pick, confidence, rationale, chosen_odds)
             else:
                 print(f"Failed to parse response for game {game_id}. Response: {response.text}")
         else:

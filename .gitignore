@@ -1,8 +1,0 @@
-# Python virtual environment
-venv/
-
-# Database file
-picks.db
-
-# Environment variables
-.env
